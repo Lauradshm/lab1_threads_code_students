@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
-#include <stdbool.h>
+
 
 
 #define KILO (1024)
@@ -30,8 +30,8 @@ static int issorted(void);
 
 static int *v;
 static int threardcounter = 1;
-static int MAX_THREADS = 16;
-static unsigned int THRESHOLD = 200000;
+static int MAX_THREADS = 8;
+static unsigned int THRESHOLD = 3000000;
 static int count = 0;
 // static int count;
 struct threadArgs {
@@ -112,6 +112,8 @@ static void
 quick_sort(int *v, unsigned low, unsigned high)
 {
     unsigned pivot_index;
+    unsigned left_size;
+    unsigned right_size;
 
     /* no need to sort a vector of zero or one element */
     if (low >= high){
@@ -131,6 +133,11 @@ quick_sort(int *v, unsigned low, unsigned high)
 
     pivot_index = partition(v, low, high, pivot_index);
 
+    left_size = pivot_index -low;
+    right_size = high - pivot_index;
+    // printf("left_size = %d\n", left_size);
+    // printf("right_size = %d\n", right_size);
+
 
     pthread_t* children;
     struct threadArgs* argsleft;
@@ -140,88 +147,191 @@ quick_sort(int *v, unsigned low, unsigned high)
     unsigned int childcount = 0;
     unsigned int can_create = 0;
     if(children != NULL){
-        
-        int result;
-        if(low < pivot_index){
-            argsleft = malloc(sizeof(struct threadArgs));
-            if(argsleft != NULL){
-                argsleft->low = low;
-                argsleft->high = pivot_index -1;
-                argsleft->int_v = v;
-                pthread_mutex_lock(&lock);
-                if(threardcounter < MAX_THREADS){
-                    threardcounter++;
-                    can_create = 1;
-                }
-                pthread_mutex_unlock(&lock);
-                if(can_create == 1){
-                    result = pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsleft);
 
-                    if(result == 0){
-                        childcount ++;
-                        count ++;
+        if(left_size >= right_size){
+            // printf("left_size  \n");
+            int result;
+            if(low < pivot_index){
+                argsleft = malloc(sizeof(struct threadArgs));
+                if(argsleft != NULL){
+                    argsleft->low = low;
+                    argsleft->high = pivot_index -1;
+                    argsleft->int_v = v;
+                    pthread_mutex_lock(&lock);
+                    if(threardcounter < MAX_THREADS){
+                        threardcounter++;
+                        can_create = 1;
+                    }
+                    pthread_mutex_unlock(&lock);
+                    if(can_create == 1){
+                        result = pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsleft);
+
+                        if(result == 0){
+                            childcount ++;
+                            pthread_mutex_lock(&lock);
+                            count ++;
+                            pthread_mutex_unlock(&lock);
+                        }else{
+                            free(argsleft);
+                            pthread_mutex_lock(&lock);
+                            threardcounter --;
+                            pthread_mutex_unlock(&lock);
+                            quick_sort_seq(v, low, pivot_index-1);
+                            
+                        }
                     }else{
                         free(argsleft);
-                        pthread_mutex_lock(&lock);
-                        threardcounter --;
-                        pthread_mutex_unlock(&lock);
                         quick_sort_seq(v, low, pivot_index-1);
-                        
                     }
+
                 }else{
-                    free(argsleft);
                     quick_sort_seq(v, low, pivot_index-1);
+                    
                 }
-
-            }else{
-                quick_sort_seq(v, low, pivot_index-1);
-                
             }
-        
-        }
-        if (pivot_index < high){
-            argsright = malloc(sizeof(struct threadArgs));
-            if(argsright != NULL){
-                argsright->low = pivot_index +1;
-                argsright->high = high;
-                argsright->int_v = v;
+            if(pivot_index < high){
+            
+                argsright = malloc(sizeof(struct threadArgs));
+                if(argsright != NULL){
+                    argsright->low = pivot_index +1;
+                    argsright->high = high;
+                    argsright->int_v = v;
 
-                can_create = 0;
-                pthread_mutex_lock(&lock);
-                if(threardcounter < MAX_THREADS){
-                    threardcounter++;
-                    can_create = 1;
-                }
-                pthread_mutex_unlock(&lock);
-
-                if(can_create == 1){
-
-                    result= pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsright);
-                    if(result == 0){
-                        childcount ++;
-                        count ++;
+                    can_create = 0;
+                    pthread_mutex_lock(&lock);
+                    if(threardcounter < MAX_THREADS){
+                        threardcounter++;
+                        can_create = 1;
                     }
-                    else{
+                    pthread_mutex_unlock(&lock);
+
+                    if(can_create == 1){
+
+                        result= pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsright);
+                        if(result == 0){
+                            childcount ++;
+                            pthread_mutex_lock(&lock);
+                            count ++;
+                            pthread_mutex_unlock(&lock);
+                        }
+                        else{
+                            free(argsright);
+                            pthread_mutex_lock(&lock);
+                            threardcounter --;
+                            pthread_mutex_unlock(&lock);
+                            quick_sort_seq(v, pivot_index+1, high);
+                            
+                        }
+                    }else{
                         free(argsright);
-                        pthread_mutex_lock(&lock);
-                        threardcounter --;
-                        pthread_mutex_unlock(&lock);
                         quick_sort_seq(v, pivot_index+1, high);
-                        
                     }
+
                 }else{
-                    free(argsright);
                     quick_sort_seq(v, pivot_index+1, high);
+                    
+                }
+            
+            }
+            
+            for(unsigned int id = 0; id < childcount; id++){
+                pthread_join(children[id], NULL);
+            }
+
+        }else{
+            // printf("right_size  \n");
+            int result;
+            if(pivot_index < high){
+                argsright = malloc(sizeof(struct threadArgs));
+                if(argsright != NULL){
+                    argsright->low = pivot_index +1;
+                    argsright->high = high;
+                    argsright->int_v = v;
+
+                    can_create = 0;
+                    pthread_mutex_lock(&lock);
+                    if(threardcounter < MAX_THREADS){
+                        threardcounter++;
+                        can_create = 1;
+                    }
+
+                    pthread_mutex_unlock(&lock);
+
+                    if(can_create == 1){
+
+                        result= pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsright);
+                        if(result == 0){
+                            childcount ++;
+                            pthread_mutex_lock(&lock);
+                            count ++;
+                            pthread_mutex_unlock(&lock);
+                        }
+                        else{
+                            free(argsright);
+                            pthread_mutex_lock(&lock);
+                            threardcounter --;
+                            pthread_mutex_unlock(&lock);
+                            quick_sort_seq(v, pivot_index+1, high);
+                            
+                        }
+                    }else{
+                        free(argsright);
+                        quick_sort_seq(v, pivot_index+1, high);
+                    }
+
+                }else{
+                    quick_sort_seq(v, pivot_index+1, high);
+                    
                 }
 
-            }else{
-                quick_sort_seq(v, pivot_index+1, high);
-                
+
             }
-        
-        }
-        for(unsigned int id = 0; id < childcount; id++){
-            pthread_join(children[id], NULL);
+
+            if(low < pivot_index){
+                argsleft = malloc(sizeof(struct threadArgs));
+                if(argsleft != NULL){
+                    argsleft->low = low;
+                    argsleft->high = pivot_index -1;
+                    argsleft->int_v = v;
+
+                    can_create = 0;
+                    pthread_mutex_lock(&lock);
+                    if(threardcounter < MAX_THREADS){
+                        threardcounter++;
+                        can_create = 1;
+                    }
+                    pthread_mutex_unlock(&lock);
+                    if(can_create == 1){
+                        result = pthread_create(&(children[childcount]), NULL, thread_function, (void*)argsleft);
+
+                        if(result == 0){
+                            childcount ++;
+                            pthread_mutex_lock(&lock);
+                            count ++;
+                            pthread_mutex_unlock(&lock);
+                        }else{
+                            free(argsleft);
+                            pthread_mutex_lock(&lock);
+                            threardcounter --;
+                            pthread_mutex_unlock(&lock);
+                            quick_sort_seq(v, low, pivot_index-1);
+                            
+                        }
+                    }else{
+                        free(argsleft);
+                        quick_sort_seq(v, low, pivot_index-1);
+                    }
+
+                }else{
+                    quick_sort_seq(v, low, pivot_index-1);
+                    
+                }
+            }
+
+            for(unsigned int id = 0; id < childcount; id++){
+                pthread_join(children[id], NULL);
+            }
+
         }
     }else{
         if (low < pivot_index)
